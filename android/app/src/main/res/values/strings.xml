@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">meshdesk-p2p-app</string>
+    <string name="title_activity_main">meshdesk-p2p-app</string>
+    <string name="package_name">me.heitor.ribeiro</string>
+    <string name="custom_url_scheme">me.heitor.ribeiro</string>
+</resources>
