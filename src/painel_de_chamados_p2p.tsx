@@ -78,32 +78,26 @@ export default function App() {
   const [myNodeName, setMyNodeName] = useState<string>('');
   const [peerInstance, setPeerInstance] = useState<any>(null);
   
-  // Controle de conexões WebRTC
   const [connections, setConnections] = useState<Connection[]>([]);
   const [targetPeerId, setTargetPeerId] = useState<string>('');
   const [connectionStatus, setConnectionStatus] = useState<string>('initializing'); // initializing, ready, connected, error
   
-  // Banco de dados em memória e persistido
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [logs, setLogs] = useState<LogItem[]>([]);
   
-  // Configurações e Modais
   const [isRenameModalOpen, setIsRenameModalOpen] = useState<boolean>(false);
   const [tempNodeName, setTempNodeName] = useState<string>('');
   const [isConfigModalOpen, setIsConfigModalOpen] = useState<boolean>(false);
   const [centralServerIdInput, setCentralServerIdInput] = useState<string>('');
 
-  // Formulário de novo chamado
   const [newTitle, setNewTitle] = useState<string>('');
   const [newCategory, setNewCategory] = useState<string>('Rede');
   const [newPriority, setNewPriority] = useState<string>('media');
   const [newUser, setNewUser] = useState<string>('');
 
-  // Filtros de busca
   const [filterCategory, setFilterCategory] = useState<string>('Todos');
   const [filterPriority, setFilterPriority] = useState<string>('Todos');
 
-  // UI States
   const [copiedId, setCopiedId] = useState<boolean>(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -134,7 +128,7 @@ export default function App() {
       setCentralServerIdInput(savedCentralId);
     }
 
-    // 4. Carrega os chamados salvos localmente (Não expiram no reinício)
+    // 4. Carrega os chamados salvos localmente
     const storedTickets = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (storedTickets) {
       try {
@@ -206,12 +200,10 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [deviceMode]); // Reinicia a instância se o modo do dispositivo mudar para criar identificadores limpos
+  }, [deviceMode]); 
 
   const initPeerInstance = () => {
     try {
-      // PROCESSO DE ID ESTÁVEL: Se o ID já existir no localStorage, usamos ele.
-      // Caso contrário, geramos um novo ID estável uma única vez e guardamos para sempre.
       let stableId = localStorage.getItem(SAVED_PEER_ID_KEY);
       
       if (!stableId) {
@@ -303,28 +295,9 @@ export default function App() {
     });
   };
 
-  const connectToDevice = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!targetPeerId.trim() || !peerInstance) return;
-
-    const cleanTargetId = targetPeerId.trim();
-
-    if (cleanTargetId === myNodeId) {
-      addLog('Impossível abrir canal de loopback consigo mesmo!', 'error');
-      return;
-    }
-
-    addLog(`Abrindo canal direto com: ${cleanTargetId}...`, 'info');
-    const conn = peerInstance.connect(cleanTargetId);
-    setupConnection(conn);
-    setTargetPeerId('');
-  };
-
   useEffect(() => {
     if (deviceMode !== 'terminal' || !centralServerIdInput.trim() || connections.length > 0 || !peerInstance) return;
 
-    // Se este dispositivo for um terminal de campo e perder conexão, ele tenta restabelecer o link
-    // de 15 em 15 segundos automaticamente. Ideal para quando o Servidor Central é reiniciado.
     const autoReconnectInterval = setInterval(() => {
       addLog(`[Auto-Reconexão] Buscando Servidor Central no ID: ${centralServerIdInput}...`, 'info');
       try {
@@ -338,11 +311,42 @@ export default function App() {
     return () => clearInterval(autoReconnectInterval);
   }, [deviceMode, centralServerIdInput, connections, peerInstance]);
 
+  const connectToDevice = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetPeerId.trim() || !peerInstance) return;
+
+    const cleanTargetId = targetPeerId.trim();
+
+    if (cleanTargetId === myNodeId) {
+      addLog('Não é possível estabelecer conexão consigo mesmo!', 'error');
+      return;
+    }
+
+    addLog(`Iniciando handshake WebRTC com: ${cleanTargetId}...`, 'info');
+    try {
+      const conn = peerInstance.connect(cleanTargetId);
+      setupConnection(conn);
+    } catch (err: any) {
+      addLog(`Falha ao conectar: ${err.message}`, 'error');
+    }
+    setTargetPeerId('');
+  };
+
   const mergeTickets = (incomingTickets: Ticket[], remoteNodeName: string) => {
     const localTickets: Ticket[] = [...JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]')];
     let hasChanges = false;
 
     incomingTickets.forEach(incoming => {
+      if (deviceMode === 'terminal' && incoming.status === 'concluido') {
+        const matchIndex = localTickets.findIndex(l => l.id === incoming.id);
+        if (matchIndex !== -1) {
+          localTickets.splice(matchIndex, 1);
+          hasChanges = true;
+          addLog(`Chamado #${incoming.id.slice(-4)} concluído remotamente e removido deste terminal de campo.`, 'sync');
+        }
+        return; 
+      }
+
       const localMatchIndex = localTickets.findIndex(l => l.id === incoming.id);
 
       if (localMatchIndex === -1) {
@@ -351,13 +355,11 @@ export default function App() {
         addLog(`Novo chamado recebido de [${remoteNodeName}]: "${incoming.title}"`, 'sync');
       } else {
         const local = localTickets[localMatchIndex];
-        // Algoritmo Last-Writer-Wins por Versão
         if (incoming.version > local.version) {
           localTickets[localMatchIndex] = incoming;
           hasChanges = true;
           addLog(`Atualização aceita para #${incoming.id.slice(-4)} (v${incoming.version}) de [${remoteNodeName}]`, 'sync');
         } else if (local.version > incoming.version) {
-          // Se o nosso dado local for mais recente, transmitimos o master para atualizar o outro nó
           broadcastMyData();
         }
       }
@@ -422,25 +424,36 @@ export default function App() {
 
   const updateTicketStatus = (ticketId: string, nextStatus: string) => {
     let updatedTicket: Ticket | null = null;
-    const updated = tickets.map((t: Ticket) => {
-      if (t.id === ticketId) {
-        updatedTicket = {
-          ...t,
-          status: nextStatus,
-          version: t.version + 1,
-          lastUpdatedBy: myNodeName
-        };
-        return updatedTicket;
-      }
-      return t;
-    });
+    const ticketToUpdate = tickets.find(t => t.id === ticketId);
+    if (!ticketToUpdate) return;
 
-    saveToLocalStorage(updated);
-    addLog(`Chamado #${ticketId.slice(-4)} atualizado para [${nextStatus}].`, 'info');
+    updatedTicket = {
+      ...ticketToUpdate,
+      status: nextStatus,
+      version: ticketToUpdate.version + 1,
+      lastUpdatedBy: myNodeName
+    };
 
     if (updatedTicket) {
       broadcastSingleUpdate(updatedTicket);
     }
+
+    let updated: Ticket[];
+    
+    if (deviceMode === 'terminal' && nextStatus === 'concluido') {
+      updated = tickets.filter((t: Ticket) => t.id !== ticketId);
+      addLog(`Chamado #${ticketId.slice(-4)} concluído e removido deste terminal de campo.`, 'info');
+    } else {
+      updated = tickets.map((t: Ticket) => {
+        if (t.id === ticketId) {
+          return updatedTicket!;
+        }
+        return t;
+      });
+      addLog(`Chamado #${ticketId.slice(-4)} atualizado para [${nextStatus}].`, 'info');
+    }
+
+    saveToLocalStorage(updated);
   };
 
   const deleteTicket = (ticketId: string) => {
@@ -486,13 +499,10 @@ export default function App() {
     }
   };
 
-  // Alteração de Configurações de Rede do Aparelho
   const handleSaveConfig = (e: React.FormEvent) => {
     e.preventDefault();
     localStorage.setItem(DEVICE_MODE_KEY, deviceMode);
     localStorage.setItem(SAVED_CENTRAL_ID_KEY, centralServerIdInput.trim());
-    
-    // Força a regeneração de um ID adequado ao novo modo
     localStorage.removeItem(SAVED_PEER_ID_KEY);
     
     setIsConfigModalOpen(false);
@@ -511,7 +521,7 @@ export default function App() {
     }
   };
 
-  const copyToClipboard = async () => {
+  const copyToClipboard = () => {
     try {
       const dummy = document.createElement("input");
       document.body.appendChild(dummy);
@@ -778,64 +788,68 @@ export default function App() {
             </form>
           </div>
 
-          {/* GERENCIAMENTO DE SEGURANÇA E BACKUPS */}
-          <div className="bg-slate-950/60 rounded-xl border border-slate-800 p-4 space-y-3">
-            <h3 className="font-bold text-[10px] tracking-wider uppercase text-slate-400 flex items-center gap-1.5 font-mono border-b border-slate-850 pb-2">
-              <Database className="h-3.5 w-3.5 text-indigo-400" />
-              Garantia e Backup de Dados
-            </h3>
-            
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              O sistema utiliza o banco de dados do navegador. Reiniciar o computador, fechar a aba ou desligar o sistema **não apaga** seus dados. Mas você pode gerar cópias físicas para segurança.
-            </p>
-
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                onClick={handleExportBackup}
-                className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 py-2 px-2.5 rounded-lg border border-slate-700 transition-all active:scale-95"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Exportar Backup
-              </button>
+          {/* GERENCIAMENTO DE SEGURANÇA E BACKUPS - EXCLUSIVO MODO SERVIDOR */}
+          {deviceMode === 'central' && (
+            <div className="bg-slate-950/60 rounded-xl border border-slate-800 p-4 space-y-3">
+              <h3 className="font-bold text-[10px] tracking-wider uppercase text-slate-400 flex items-center gap-1.5 font-mono border-b border-slate-850 pb-2">
+                <Database className="h-3.5 w-3.5 text-indigo-400" />
+                Garantia e Backup de Dados
+              </h3>
               
-              <label className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 py-2 px-2.5 rounded-lg border border-slate-700 transition-all active:scale-95 cursor-pointer text-center">
-                <Upload className="h-3.5 w-3.5" />
-                Importar Backup
-                <input 
-                  type="file" 
-                  accept=".json" 
-                  onChange={handleImportBackup} 
-                  className="hidden" 
-                />
-              </label>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                O sistema utiliza o banco de dados do navegador. Reiniciar o computador, fechar a aba ou desligar o sistema **não apaga** seus dados. Mas você pode gerar cópias físicas para segurança.
+              </p>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={handleExportBackup}
+                  className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 py-2 px-2.5 rounded-lg border border-slate-700 transition-all active:scale-95"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Exportar Backup
+                </button>
+                
+                <label className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 py-2 px-2.5 rounded-lg border border-slate-700 transition-all active:scale-95 cursor-pointer text-center">
+                  <Upload className="h-3.5 w-3.5" />
+                  Importar Backup
+                  <input 
+                    type="file" 
+                    accept=".json" 
+                    onChange={handleImportBackup} 
+                    className="hidden" 
+                  />
+                </label>
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* LOGS DE EVENTO */}
-          <div className="bg-slate-950/60 rounded-xl border border-slate-800 p-4 space-y-3">
-            <h3 className="font-bold text-[10px] tracking-wider uppercase text-slate-400 flex items-center gap-1.5 font-mono border-b border-slate-850 pb-2">
-              <Terminal className="h-3.5 w-3.5 text-indigo-400" />
-              Eventos e Enlaces de Rede
-            </h3>
+          {/* LOGS DE EVENTO - EXCLUSIVO MODO SERVIDOR */}
+          {deviceMode === 'central' && (
+            <div className="bg-slate-950/60 rounded-xl border border-slate-800 p-4 space-y-3">
+              <h3 className="font-bold text-[10px] tracking-wider uppercase text-slate-400 flex items-center gap-1.5 font-mono border-b border-slate-850 pb-2">
+                <Terminal className="h-3.5 w-3.5 text-indigo-400" />
+                Eventos e Enlaces de Rede
+              </h3>
 
-            <div className="bg-slate-900 rounded-lg p-2.5 h-36 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 border border-slate-950 scrollbar-thin scrollbar-thumb-slate-800">
-              {logs.map((log) => {
-                let colorClass = 'text-slate-400';
-                if (log.type === 'success') colorClass = 'text-emerald-400';
-                if (log.type === 'warning') colorClass = 'text-amber-400';
-                if (log.type === 'error') colorClass = 'text-rose-400 font-semibold';
-                if (log.type === 'sync') colorClass = 'text-indigo-300';
+              <div className="bg-slate-900 rounded-lg p-2.5 h-36 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 border border-slate-950 scrollbar-thin scrollbar-thumb-slate-800">
+                {logs.map((log) => {
+                  let colorClass = 'text-slate-400';
+                  if (log.type === 'success') colorClass = 'text-emerald-400';
+                  if (log.type === 'warning') colorClass = 'text-amber-400';
+                  if (log.type === 'error') colorClass = 'text-rose-400 font-semibold';
+                  if (log.type === 'sync') colorClass = 'text-indigo-300';
 
-                return (
-                  <div key={log.id} className="border-b border-slate-950/35 pb-1 last:border-0">
-                    <span className="text-slate-600 mr-1.5">[{log.time}]</span>
-                    <span className={colorClass}>{log.message}</span>
-                  </div>
-                );
-              })}
-              <div ref={logsEndRef} />
+                  return (
+                    <div key={log.id} className="border-b border-slate-950/35 pb-1 last:border-0">
+                      <span className="text-slate-600 mr-1.5">[{log.time}]</span>
+                      <span className={colorClass}>{log.message}</span>
+                    </div>
+                  );
+                })}
+                <div ref={logsEndRef} />
+              </div>
             </div>
-          </div>
+          )}
 
         </section>
 
