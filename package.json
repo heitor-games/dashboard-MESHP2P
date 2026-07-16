@@ -6,7 +6,7 @@
     "scripts": {
         "dev": "vite --host",
         "build": "vite build",
-        "genApk": "npm run build && npx cap sync && cd android/ && ./gradlew assembleDebug"
+        "genApk": "npm run build && npx cap sync && cd android/ && ./gradlew assembleDebug",
         "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"
     },
