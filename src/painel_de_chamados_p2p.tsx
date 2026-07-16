@@ -23,53 +23,84 @@ import {
   X
 } from 'lucide-react';
 
+// Estendendo a interface global Window para suportar a biblioteca do PeerJS injetada dinamicamente
+declare global {
+  interface Window {
+    Peer: any;
+  }
+}
+
+// Interfaces de Tipo estritas para garantir conformidade do TypeScript
+interface Ticket {
+  id: string;
+  title: string;
+  category: string;
+  priority: string;
+  status: string;
+  user: string;
+  createdAt: string;
+  version: number;
+  lastUpdatedBy: string;
+}
+
+interface Connection {
+  peerId: string;
+  name: string;
+  connInstance: any;
+}
+
+interface LogItem {
+  id: number;
+  time: string;
+  type: 'info' | 'success' | 'warning' | 'error' | 'sync';
+  message: string;
+}
+
 // Chaves para persistência local
 const LOCAL_STORAGE_KEY = 'meshdesk_p2p_tickets';
 const NODE_NAME_KEY = 'meshdesk_node_name';
 
 // Função para gerar IDs únicos amigáveis
-const generateUniqueId = () => Math.random().toString(36).substring(2, 9).toUpperCase();
+const generateUniqueId = (): string => Math.random().toString(36).substring(2, 9).toUpperCase();
 
-const PHONE_MODELS = [
+const PHONE_MODELS: string[] = [
   'iPhone 15 Pro', 'Galaxy S24', 'Xiaomi 14', 'Motorola Edge', 'Pixel 8', 'Redmi Note 13'
 ];
 
 export default function App() {
-  // --- ESTADOS DO SISTEMA ---
-  const [myNodeId, setMyNodeId] = useState('');
-  const [myNodeName, setMyNodeName] = useState('');
-  const [peerInstance, setPeerInstance] = useState(null);
+  const [myNodeId, setMyNodeId] = useState<string>('');
+  const [myNodeName, setMyNodeName] = useState<string>('');
+  const [peerInstance, setPeerInstance] = useState<any>(null);
   
   // Conexões e rede
-  const [connections, setConnections] = useState([]); // { peerId, name, connInstance }
-  const [targetPeerId, setTargetPeerId] = useState('');
-  const [connectionStatus, setConnectionStatus] = useState('initializing'); // initializing, ready, connected, error
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [targetPeerId, setTargetPeerId] = useState<string>('');
+  const [connectionStatus, setConnectionStatus] = useState<string>('initializing'); // initializing, ready, connected, error
   
   // Banco de dados local (persistido no LocalStorage)
-  const [tickets, setTickets] = useState([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
   
   // Logs reais de rede
-  const [logs, setLogs] = useState([]);
+  const [logs, setLogs] = useState<LogItem[]>([]);
   
   // Modais customizados para evitar popups bloqueados no celular
-  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
-  const [tempNodeName, setTempNodeName] = useState('');
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState<boolean>(false);
+  const [tempNodeName, setTempNodeName] = useState<string>('');
 
   // Formulário de novo chamado
-  const [newTitle, setNewTitle] = useState('');
-  const [newCategory, setNewCategory] = useState('Rede');
-  const [newPriority, setNewPriority] = useState('media');
-  const [newUser, setNewUser] = useState('');
+  const [newTitle, setNewTitle] = useState<string>('');
+  const [newCategory, setNewCategory] = useState<string>('Rede');
+  const [newPriority, setNewPriority] = useState<string>('media');
+  const [newUser, setNewUser] = useState<string>('');
 
   // Filtros de chamados
-  const [filterCategory, setFilterCategory] = useState('Todos');
-  const [filterPriority, setFilterPriority] = useState('Todos');
+  const [filterCategory, setFilterCategory] = useState<string>('Todos');
+  const [filterPriority, setFilterPriority] = useState<string>('Todos');
 
   // UI States
-  const [copiedId, setCopiedId] = useState(false);
-  const logsEndRef = useRef(null);
+  const [copiedId, setCopiedId] = useState<boolean>(false);
+  const logsEndRef = useRef<HTMLDivElement>(null);
 
-  // --- 1. INICIALIZAÇÃO LOCAL (OFFLINE-FIRST) ---
   useEffect(() => {
     // Carrega ou define o nome do dispositivo celular
     let storedName = localStorage.getItem(NODE_NAME_KEY);
@@ -91,7 +122,7 @@ export default function App() {
         addLog('Erro ao ler banco local. Inicializando vazio.', 'error');
       }
     } else {
-      const initial = [
+      const initial: Ticket[] = [
         { id: '1', title: 'Queda de conexão no Faturamento', category: 'Rede', priority: 'alta', status: 'pendente', user: 'Carlos Silva', createdAt: new Date(Date.now() - 3600000).toISOString(), version: 1, lastUpdatedBy: storedName },
         { id: '2', title: 'Atualizar antivírus na Recepção', category: 'Software', priority: 'baixa', status: 'em_atendimento', user: 'Mariana Costa', createdAt: new Date(Date.now() - 7200000).toISOString(), version: 1, lastUpdatedBy: storedName }
       ];
@@ -110,19 +141,18 @@ export default function App() {
   }, [logs]);
 
   // Grava chamados no localStorage
-  const saveToLocalStorage = (newTickets) => {
+  const saveToLocalStorage = (newTickets: Ticket[]) => {
     setTickets(newTickets);
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newTickets));
   };
 
-  const addLog = (message, type = 'info') => {
+  const addLog = (message: string, type: 'info' | 'success' | 'warning' | 'error' | 'sync' = 'info') => {
     setLogs(prev => [
       ...prev,
       { id: Date.now() + Math.random(), time: new Date().toLocaleTimeString(), type, message }
     ].slice(-40));
   };
 
-  // --- 2. CARREGAMENTO E INICIALIZAÇÃO DA BIBLIOTECA P2P (PEERJS) ---
   useEffect(() => {
     let active = true;
 
@@ -177,18 +207,18 @@ export default function App() {
         }
       });
 
-      peer.on('open', (id) => {
+      peer.on('open', (id: string) => {
         setMyNodeId(id);
         setConnectionStatus('ready');
         addLog(`Endereço P2P gerado com sucesso: ${id}`, 'success');
         addLog('Celular pronto para receber conexões da malha!', 'info');
       });
 
-      peer.on('connection', (conn) => {
+      peer.on('connection', (conn: any) => {
         setupConnection(conn);
       });
 
-      peer.on('error', (err) => {
+      peer.on('error', (err: any) => {
         console.error('PeerJS Error:', err);
         addLog(`Aviso de Rede: ${err.type === 'network' ? 'Instabilidade de conexão' : err.message}`, 'warning');
         
@@ -196,25 +226,24 @@ export default function App() {
         if (err.type === 'unavailable-id') {
           addLog('Recriando nó com ID alternativo...', 'info');
           const fallbackPeer = new window.Peer(undefined, { debug: 1 });
-          fallbackPeer.on('open', (id) => {
+          fallbackPeer.on('open', (id: string) => {
             setMyNodeId(id);
             setConnectionStatus('ready');
             addLog(`Endereço P2P alternativo pronto: ${id}`, 'success');
           });
-          fallbackPeer.on('connection', (c) => setupConnection(c));
+          fallbackPeer.on('connection', (c: any) => setupConnection(c));
           setPeerInstance(fallbackPeer);
         }
       });
 
       setPeerInstance(peer);
-    } catch (e) {
+    } catch (e: any) {
       setConnectionStatus('error');
       addLog(`Falha geral ao iniciar PeerJS: ${e.message}`, 'error');
     }
   };
 
-  // Configurar listeners para conexões entrantes ou sainte
-  const setupConnection = (conn) => {
+  const setupConnection = (conn: any) => {
     setConnectionStatus('connected');
     
     conn.on('open', () => {
@@ -228,7 +257,7 @@ export default function App() {
       });
     });
 
-    conn.on('data', (data) => {
+    conn.on('data', (data: any) => {
       if (!data || !data.type) return;
 
       if (data.type === 'HANDSHAKE') {
@@ -255,14 +284,14 @@ export default function App() {
       setConnections(prev => prev.filter(c => c.peerId !== conn.peer));
     });
 
-    conn.on('error', (err) => {
+    conn.on('error', () => {
       addLog(`Conexão com par interrompida abruptamente.`, 'warning');
       setConnections(prev => prev.filter(c => c.peerId !== conn.peer));
     });
   };
 
   // Conectar manualmente a outro aparelho utilizando o ID
-  const connectToDevice = (e) => {
+  const connectToDevice = (e: React.FormEvent) => {
     e.preventDefault();
     if (!targetPeerId.trim() || !peerInstance) return;
 
@@ -279,9 +308,8 @@ export default function App() {
     setTargetPeerId('');
   };
 
-  // --- 3. ALGORITMO CRDT (RESOLUÇÃO DE CONFLITOS E CONVERGÊNCIA) ---
-  const mergeTickets = (incomingTickets, remoteNodeName) => {
-    let localTickets = [...JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]')];
+  const mergeTickets = (incomingTickets: Ticket[], remoteNodeName: string) => {
+    const localTickets: Ticket[] = [...JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]')];
     let hasChanges = false;
 
     incomingTickets.forEach(incoming => {
@@ -305,13 +333,13 @@ export default function App() {
     });
 
     if (hasChanges) {
-      localTickets.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      localTickets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       saveToLocalStorage(localTickets);
     }
   };
 
   const broadcastMyData = () => {
-    const currentLocalTickets = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]');
+    const currentLocalTickets: Ticket[] = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]');
     connections.forEach(c => {
       if (c.connInstance && c.connInstance.open) {
         c.connInstance.send({
@@ -323,7 +351,7 @@ export default function App() {
     });
   };
 
-  const broadcastSingleUpdate = (ticket) => {
+  const broadcastSingleUpdate = (ticket: Ticket) => {
     connections.forEach(c => {
       if (c.connInstance && c.connInstance.open) {
         c.connInstance.send({
@@ -335,12 +363,11 @@ export default function App() {
     });
   };
 
-  // --- 4. CRIAÇÃO E MUTABILIDADE DE CHAMADOS ---
-  const handleCreateTicket = (e) => {
+  const handleCreateTicket = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim() || !newUser.trim()) return;
 
-    const newTicket = {
+    const newTicket: Ticket = {
       id: generateUniqueId(),
       title: newTitle,
       category: newCategory,
@@ -362,9 +389,9 @@ export default function App() {
     setNewUser('');
   };
 
-  const updateTicketStatus = (ticketId, nextStatus) => {
-    let updatedTicket = null;
-    const updated = tickets.map(t => {
+  const updateTicketStatus = (ticketId: string, nextStatus: string) => {
+    let updatedTicket: Ticket | null = null;
+    const updated = tickets.map((t: Ticket) => {
       if (t.id === ticketId) {
         updatedTicket = {
           ...t,
@@ -385,15 +412,15 @@ export default function App() {
     }
   };
 
-  const deleteTicket = (ticketId) => {
-    const updated = tickets.filter(t => t.id !== ticketId);
+  const deleteTicket = (ticketId: string) => {
+    const updated = tickets.filter((t: Ticket) => t.id !== ticketId);
     saveToLocalStorage(updated);
     addLog(`Chamado #${ticketId.slice(-4)} deletado localmente.`, 'warning');
     broadcastMyData();
   };
 
   // Salvar novo nome do dispositivo através do modal interno
-  const handleSaveRename = (e) => {
+  const handleSaveRename = (e: React.FormEvent) => {
     e.preventDefault();
     if (tempNodeName.trim()) {
       setMyNodeName(tempNodeName.trim());
@@ -404,15 +431,18 @@ export default function App() {
     }
   };
 
-  const copyToClipboard = () => {
+  const copyToClipboard = async () => {
     try {
-      const dummy = document.createElement("input");
-      document.body.appendChild(dummy);
-      dummy.value = myNodeId;
-      dummy.select();
-      document.execCommand("copy");
-      document.body.removeChild(dummy);
-
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(myNodeId);
+      } else {
+        const dummy = document.createElement("input");
+        document.body.appendChild(dummy);
+        dummy.value = myNodeId;
+        dummy.select();
+        document.execCommand("copy");
+        document.body.removeChild(dummy);
+      }
       setCopiedId(true);
       addLog('Seu ID P2P foi copiado!', 'info');
       setTimeout(() => setCopiedId(false), 2000);
@@ -421,7 +451,7 @@ export default function App() {
     }
   };
 
-  const filteredTickets = tickets.filter(t => {
+  const filteredTickets = tickets.filter((t: Ticket) => {
     const matchesCategory = filterCategory === 'Todos' || t.category === filterCategory;
     const matchesPriority = filterPriority === 'Todos' || t.priority === filterPriority;
     return matchesCategory && matchesPriority;
@@ -529,7 +559,7 @@ export default function App() {
                 type="text" 
                 placeholder="Insira o ID P2P do outro dispositivo..." 
                 value={targetPeerId}
-                onChange={(e) => setTargetPeerId(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTargetPeerId(e.target.value)}
                 className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 font-mono placeholder:text-slate-600 text-slate-200"
                 required
               />
@@ -554,7 +584,7 @@ export default function App() {
               </div>
             ) : (
               <div className="max-h-24 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-slate-800 pr-1">
-                {connections.map((c) => (
+                {connections.map((c: Connection) => (
                   <div key={c.peerId} className="flex items-center justify-between bg-slate-950/60 p-1.5 rounded-md border border-slate-850">
                     <span className="text-xs text-slate-200 truncate pr-2 font-medium flex items-center gap-1">
                       <Smartphone className="h-3 w-3 text-slate-500" />
@@ -590,7 +620,7 @@ export default function App() {
                 <input 
                   type="text" 
                   value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTitle(e.target.value)}
                   placeholder="Ex: Teclado quebrado ou Monitor sem sinal" 
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-slate-100 placeholder:text-slate-600"
                   required
@@ -603,7 +633,7 @@ export default function App() {
                   <input 
                     type="text" 
                     value={newUser}
-                    onChange={(e) => setNewUser(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewUser(e.target.value)}
                     placeholder="Nome" 
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-slate-100 placeholder:text-slate-600"
                     required
@@ -614,7 +644,7 @@ export default function App() {
                   <label className="text-[11px] text-slate-400 font-medium">Categoria</label>
                   <select 
                     value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewCategory(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-slate-300"
                   >
                     <option value="Rede">Rede</option>
@@ -629,7 +659,7 @@ export default function App() {
                 <label className="text-[11px] text-slate-400 font-medium">Prioridade</label>
                 <select 
                   value={newPriority}
-                  onChange={(e) => setNewPriority(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewPriority(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-slate-300"
                 >
                   <option value="baixa">Baixa</option>
@@ -657,7 +687,7 @@ export default function App() {
             </h3>
 
             <div className="bg-slate-900 rounded-lg p-2.5 h-44 overflow-y-auto font-mono text-[10px] leading-relaxed space-y-1.5 border border-slate-950 scrollbar-thin scrollbar-thumb-slate-800">
-              {logs.map((log) => {
+              {logs.map((log: LogItem) => {
                 let colorClass = 'text-slate-400';
                 if (log.type === 'success') colorClass = 'text-emerald-400';
                 if (log.type === 'warning') colorClass = 'text-amber-400';
@@ -693,7 +723,7 @@ export default function App() {
               <div className="flex gap-2 w-full md:w-auto">
                 <select 
                   value={filterCategory} 
-                  onChange={(e) => setFilterCategory(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFilterCategory(e.target.value)}
                   className="flex-1 bg-slate-900 border border-slate-850 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 focus:outline-none"
                 >
                   <option value="Todos">Todas Categorias</option>
@@ -704,7 +734,7 @@ export default function App() {
                 </select>
                 <select 
                   value={filterPriority} 
-                  onChange={(e) => setFilterPriority(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFilterPriority(e.target.value)}
                   className="flex-1 bg-slate-900 border border-slate-850 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 focus:outline-none"
                 >
                   <option value="Todos">Todas Prioridades</option>
@@ -723,7 +753,7 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredTickets.map((ticket) => {
+                {filteredTickets.map((ticket: Ticket) => {
                   let priorityBadge = '';
                   if (ticket.priority === 'alta') priorityBadge = 'bg-rose-500/10 text-rose-400 border border-rose-500/20';
                   if (ticket.priority === 'media') priorityBadge = 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
@@ -775,7 +805,7 @@ export default function App() {
                           </div>
                           <select 
                             value={ticket.status}
-                            onChange={(e) => updateTicketStatus(ticket.id, e.target.value)}
+                            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => updateTicketStatus(ticket.id, e.target.value)}
                             className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
                           >
                             <option value="pendente">Pendente</option>
@@ -826,7 +856,7 @@ export default function App() {
                 <input 
                   type="text" 
                   value={tempNodeName}
-                  onChange={(e) => setTempNodeName(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTempNodeName(e.target.value)}
                   placeholder="Ex: Xiaomi do Suporte" 
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 text-slate-100"
                   required
